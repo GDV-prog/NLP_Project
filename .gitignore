@@ -23,3 +23,5 @@ __pycache__/
 *.pyd
 .pytest_cache/
 .mypy_cache/
+
+best_model/
