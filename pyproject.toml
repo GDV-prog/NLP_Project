@@ -1,0 +1,25 @@
+[project]
+name = "PROJECT_NLP"
+version = "0.1.0"
+description = "QLoRA fine-tuning of Qwen2-7B-Instruct on RTX 4090"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "torch==2.10.0",
+    "accelerate==1.12.0",
+    "bitsandbytes==0.49.2",
+    "datasets==4.6.0",
+    "peft==0.18.1",
+    "transformers==5.2.0",
+    "trl==0.29.0",
+    "triton==3.6.0",
+    "ipykernel>=7.2.0",
+    "ipywidgets>=8.1.8",
+    "jupyterlab>=4.5.5",
+    "polars>=1.38.1",
+    "streamlit>=1.54.0",
+]
+
+[tool.uv]
+# PyTorch CUDA 12.4 index (matches RTX 4090 driver)
+index-url = "https://download.pytorch.org/whl/cu124"
+extra-index-url = ["https://pypi.org/simple"]
