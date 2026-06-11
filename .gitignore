@@ -1,4 +1,25 @@
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon_
+._*
+.Spotlight-V100
+.Trashes
+
+# --- Окружение и менеджеры пакетов (uv / venv / pip) ---
 .venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.uv/
+
+# --- Кэш Python ---
 __pycache__/
 *.pyc
-.DS_Store
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
