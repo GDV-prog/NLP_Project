@@ -9,10 +9,10 @@ def show_page2():
     st.title("📱 Классификация тематики новостей Telegram")
     st.write("Страница 2 • Определение категории новостных постов")
 
-    # Автоматически определяем пути относительно папки, где лежит этот файл
-    BASE_DIR = Path(__file__).parent
-    model_path = str(BASE_DIR / "best_model")
-    encoder_path = str(BASE_DIR / "label_encoder.pkl")
+    # Веса лежат в общей папке models/model_page2/ (как у страниц 1 и 3)
+    MODELS_DIR = Path(__file__).parent.parent / "models" / "model_page2"
+    model_path = str(MODELS_DIR / "best_model")
+    encoder_path = str(MODELS_DIR / "label_encoder.pkl")
 
     # Автоматический выбор устройства: CUDA для сервера, MPS для Mac, CPU как запасной
     if torch.cuda.is_available():
@@ -66,3 +66,16 @@ def show_page2():
             st.subheader(f"Результат: **{predicted_category}**")
             st.write(f"Уверенность модели: `{confidence:.2%}`")
             st.write(f"Время инференса: `{inference_time:.2f} мс`")
+
+            # Вероятности по всем классам
+            st.caption("Распределение по категориям:")
+            all_probs = probs[0].cpu().tolist()
+            for cat, p in sorted(
+                zip(label_encoder.classes_, all_probs), key=lambda x: -x[1]
+            ):
+                st.write(f"{cat}")
+                st.progress(p)
+
+
+# Запускаем страницу (main.py исполняет файл сверху вниз)
+show_page2()
