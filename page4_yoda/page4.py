@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import torch
 import streamlit as st
@@ -111,19 +112,21 @@ def generate_chat(mdl, tok, device, question, max_new_tokens, temperature):
             pad_token_id     = tok.eos_token_id,
         )
     new_ids = out[0][inputs['input_ids'].shape[1]:]
-    # Декодируем со спец-токенами и отрезаем всё после первой границы реплики —
-    # на случай если модель «продолжила диалог» (base — pretrain-модель)
     raw = tok.decode(new_ids, skip_special_tokens=False)
+
+    # Модель (base — pretrain) часто «продолжает диалог»: либо спец-токенами,
+    # либо просто словами user/assistant. Режем по первой такой границе.
+    cut_positions = []
     for marker in ('<|im_end|>', '<|im_start|>', '<|endoftext|>'):
         idx = raw.find(marker)
         if idx != -1:
-            raw = raw[:idx]
-    # Подчищаем возможные хвосты ролей и спец-токенов
-    answer = raw.replace('<|im_end|>', '').replace('<|im_start|>', '')
-    for role in ('assistant', 'user', 'system'):
-        if answer.rstrip().endswith(role):
-            answer = answer.rstrip()[:-len(role)]
-    return answer.strip()
+            cut_positions.append(idx)
+    for m in re.finditer(r'(?:^|\n|\s)(user|assistant|system)\b', raw):
+        cut_positions.append(m.start())
+    if cut_positions:
+        raw = raw[:min(cut_positions)]
+
+    return raw.replace('<|im_end|>', '').replace('<|im_start|>', '').strip()
 
 
 # ── UI ─────────────────────────────────────────────────────────────────────
