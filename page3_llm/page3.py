@@ -8,7 +8,12 @@ from peft import PeftModel
 MODELS_DIR   = os.path.join(os.path.dirname(__file__), '..', 'models')
 ADAPTER_PATH = os.path.join(MODELS_DIR, 'lora_adapter')
 META_PATH    = os.path.join(MODELS_DIR, 'lora_meta.json')
-MODEL_NAME   = 'Qwen/Qwen2.5-7B'
+# Локальная модель (скачана через `hf download`), иначе fallback на HuggingFace Hub
+_LOCAL_MODEL = os.path.join(MODELS_DIR, 'Qwen2.5-7B')
+MODEL_NAME   = _LOCAL_MODEL if os.path.isdir(_LOCAL_MODEL) else 'Qwen/Qwen2.5-7B'
+
+# Сила LoRA-адаптера: 2.0 (как обучено) душит содержание, 1.2 — баланс стиль/связность
+LORA_SCALING = 1.2
 
 STARTER_PROMPTS = [
     'Вах, слушай,',
@@ -43,6 +48,13 @@ def load_model():
         torch_dtype         = torch.float16,
     )
     mdl = PeftModel.from_pretrained(base, ADAPTER_PATH)
+
+    # Ослабляем адаптер до LORA_SCALING (обучен с alpha/r = 2.0)
+    for module in mdl.modules():
+        if hasattr(module, 'scaling') and isinstance(module.scaling, dict):
+            for adapter in module.scaling:
+                module.scaling[adapter] = LORA_SCALING
+
     mdl.eval()
     return mdl, tok, device
 
@@ -55,7 +67,9 @@ def generate(mdl, tok, device, prompt, max_new_tokens, temperature):
             max_new_tokens   = max_new_tokens,
             do_sample        = True,
             temperature      = temperature,
+            top_p            = 0.9,
             repetition_penalty = 1.3,
+            no_repeat_ngram_size = 3,   # запрет повторять 3-граммы — убирает зацикливания
             pad_token_id     = tok.eos_token_id,
         )
     new_ids = out[0][inputs['input_ids'].shape[1]:]
