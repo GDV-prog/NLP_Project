@@ -59,6 +59,28 @@ def load_model():
     return mdl, tok, device
 
 
+def _is_cjk(ch: str) -> bool:
+    o = ord(ch)
+    return (
+        0x4E00 <= o <= 0x9FFF   or  # китайские иероглифы (CJK Unified)
+        0x3400 <= o <= 0x4DBF   or  # CJK Extension A
+        0x3040 <= o <= 0x30FF   or  # хирагана + катакана
+        0xAC00 <= o <= 0xD7AF   or  # корейский хангыль
+        0xF900 <= o <= 0xFAFF       # CJK Compatibility
+    )
+
+
+def cjk_suppress_ids(tok):
+    """Токены, содержащие CJK-символы — Qwen изредка их генерирует. Кэшируем на токенайзере."""
+    if not hasattr(tok, '_cjk_ids'):
+        ids = [
+            i for t, i in tok.get_vocab().items()
+            if any(_is_cjk(c) for c in tok.convert_tokens_to_string([t]))
+        ]
+        tok._cjk_ids = ids
+    return tok._cjk_ids
+
+
 def generate(mdl, tok, device, prompt, max_new_tokens, temperature):
     inputs = tok(prompt, return_tensors='pt').to(device)
     with torch.no_grad():
@@ -70,6 +92,7 @@ def generate(mdl, tok, device, prompt, max_new_tokens, temperature):
             top_p            = 0.9,
             repetition_penalty = 1.3,
             no_repeat_ngram_size = 3,   # запрет повторять 3-граммы — убирает зацикливания
+            suppress_tokens  = cjk_suppress_ids(tok),  # блокируем китайские токены Qwen
             pad_token_id     = tok.eos_token_id,
         )
     new_ids = out[0][inputs['input_ids'].shape[1]:]
@@ -80,8 +103,8 @@ def generate(mdl, tok, device, prompt, max_new_tokens, temperature):
 
 st.title("Страница 3: Генерация текста — LLM & LoRA")
 st.markdown(
-    "Модель **rugpt3medium** дообучена на синтетическом датасете кавказского говора "
-    "с помощью **LoRA** (Low-Rank Adaptation). Сравни генерацию до и после fine-tuning."
+    "Модель **Qwen2.5-7B** дообучена на синтетическом датасете кавказского говора "
+    "методом **QLoRA** (4-bit квантизация + LoRA адаптер). Сравни генерацию до и после fine-tuning."
 )
 
 if not os.path.isdir(ADAPTER_PATH):
