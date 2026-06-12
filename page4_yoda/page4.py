@@ -90,11 +90,12 @@ def generate_chat(mdl, tok, device, question, max_new_tokens, temperature):
     )
     inputs = tok(text, return_tensors='pt').to(device)
 
-    # Останавливаем генерацию после ответа ассистента: <|im_end|> + обычный eos
+    # Останавливаем генерацию на границе реплики: <|im_end|>, <|im_start|> + обычный eos
     eos_ids = [tok.eos_token_id]
-    im_end = tok.convert_tokens_to_ids('<|im_end|>')
-    if isinstance(im_end, int) and im_end >= 0 and im_end not in eos_ids:
-        eos_ids.append(im_end)
+    for marker in ('<|im_end|>', '<|im_start|>'):
+        tid = tok.convert_tokens_to_ids(marker)
+        if isinstance(tid, int) and tid >= 0 and tid not in eos_ids:
+            eos_ids.append(tid)
 
     with torch.no_grad():
         out = mdl.generate(
@@ -110,7 +111,19 @@ def generate_chat(mdl, tok, device, question, max_new_tokens, temperature):
             pad_token_id     = tok.eos_token_id,
         )
     new_ids = out[0][inputs['input_ids'].shape[1]:]
-    return tok.decode(new_ids, skip_special_tokens=True).strip()
+    # Декодируем со спец-токенами и отрезаем всё после первой границы реплики —
+    # на случай если модель «продолжила диалог» (base — pretrain-модель)
+    raw = tok.decode(new_ids, skip_special_tokens=False)
+    for marker in ('<|im_end|>', '<|im_start|>', '<|endoftext|>'):
+        idx = raw.find(marker)
+        if idx != -1:
+            raw = raw[:idx]
+    # Подчищаем возможные хвосты ролей и спец-токенов
+    answer = raw.replace('<|im_end|>', '').replace('<|im_start|>', '')
+    for role in ('assistant', 'user', 'system'):
+        if answer.rstrip().endswith(role):
+            answer = answer.rstrip()[:-len(role)]
+    return answer.strip()
 
 
 # ── UI ─────────────────────────────────────────────────────────────────────
