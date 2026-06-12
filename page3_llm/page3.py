@@ -119,19 +119,22 @@ if os.path.exists(META_PATH):
         st.json(meta)
 
 # Настройки генерации
+if 'prompt' not in st.session_state:
+    st.session_state.prompt = 'Вах, слушай,'
+
 col_l, col_r = st.columns([2, 1])
 with col_l:
-    prompt = st.text_input(
-        "Начало текста (промпт)",
-        value='Вах, слушай,',
-        placeholder='Введи начало фразы...',
-    )
     st.caption("Быстрые примеры:")
     btn_cols = st.columns(len(STARTER_PROMPTS))
     for i, sp in enumerate(STARTER_PROMPTS):
         if btn_cols[i].button(sp, key=f'sp_{i}', use_container_width=True):
-            prompt = sp
-            st.rerun()
+            st.session_state.prompt = sp   # обновляем до отрисовки text_input
+
+    prompt = st.text_input(
+        "Начало текста (промпт)",
+        key='prompt',
+        placeholder='Введи начало фразы...',
+    )
 
 with col_r:
     max_new_tokens = st.slider("Макс. токенов", 30, 250, 100)
