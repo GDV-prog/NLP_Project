@@ -184,17 +184,11 @@ st.divider()
 # ── Text input ───────────────────────────────────────────────────────────────
 st.subheader("Попробовать на своём тексте")
 
-col_input, col_opts = st.columns([3, 1])
-with col_input:
-    sample_choice = st.selectbox(
-        "Вставить пример:", ["— введите свой текст —"] + SAMPLE_TEXTS, index=0
-    )
-    default_text = "" if sample_choice.startswith("—") else sample_choice
-    user_text = st.text_area("Текст отзыва:", value=default_text, height=120)
-
-with col_opts:
-    st.markdown("**Настройки**")
-    show_attention = st.checkbox("Attention-scores (BERT)", value=False)
+sample_choice = st.selectbox(
+    "Вставить пример:", ["— введите свой текст —"] + SAMPLE_TEXTS, index=0
+)
+default_text = "" if sample_choice.startswith("—") else sample_choice
+user_text = st.text_area("Текст отзыва:", value=default_text, height=120)
 
 predict_clicked = st.button("Предсказать", type="primary", disabled=not user_text.strip())
 
@@ -220,10 +214,7 @@ if predict_clicked and user_text.strip():
         })
 
     if bert_model is not None:
-        label, conf, ms, bert_out, bert_inp = predict_bert(
-            bert_model, bert_tokenizer, user_text,
-            output_attentions=show_attention,
-        )
+        label, conf, ms, _, _ = predict_bert(bert_model, bert_tokenizer, user_text)
         results.append({
             "Модель": "rubert-tiny2",
             "Тональность": LABEL_NAMES[label],
@@ -234,31 +225,3 @@ if predict_clicked and user_text.strip():
     if results:
         st.subheader("Результаты")
         st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
-
-    # ── Attention visualisation ──────────────────────────────────────────────
-    if show_attention and bert_model is not None:
-        st.subheader("Attention-scores — rubert-tiny2")
-        st.caption("Внимание токена [CLS] к остальным токенам (последний слой, голова 0).")
-
-        import matplotlib.pyplot as plt
-
-        tokens = bert_tokenizer.convert_ids_to_tokens(bert_inp["input_ids"][0])
-        attn = bert_out.attentions[-1][0, 0].numpy()  # (seq, seq)
-        cls_attn = attn[0]  # [CLS] → all tokens
-
-        display_tokens = tokens[1:-1][:30]   # drop [CLS] / [SEP], max 30
-        display_scores = cls_attn[1: len(display_tokens) + 1]
-
-        if display_scores.max() > 0:
-            display_scores = display_scores / display_scores.max()
-
-        fig, ax = plt.subplots(figsize=(max(10, len(display_tokens) * 0.45), 3))
-        colors = plt.cm.RdYlGn(display_scores)
-        ax.bar(range(len(display_tokens)), display_scores, color=colors, edgecolor="none")
-        ax.set_xticks(range(len(display_tokens)))
-        ax.set_xticklabels(display_tokens, rotation=45, ha="right", fontsize=9)
-        ax.set_ylabel("Внимание (норм.)")
-        ax.set_title("Attention [CLS] → токены")
-        ax.set_ylim(0, 1.1)
-        plt.tight_layout()
-        st.pyplot(fig)
