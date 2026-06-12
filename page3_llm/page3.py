@@ -1,0 +1,129 @@
+import os
+import json
+import torch
+import streamlit as st
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+
+MODELS_DIR   = os.path.join(os.path.dirname(__file__), '..', 'models')
+ADAPTER_PATH = os.path.join(MODELS_DIR, 'lora_adapter')
+META_PATH    = os.path.join(MODELS_DIR, 'lora_meta.json')
+MODEL_NAME   = 'Qwen/Qwen2.5-7B'
+
+STARTER_PROMPTS = [
+    'Вах, слушай,',
+    'Клянусь мамой,',
+    'Э, дорогой,',
+    'Вай вай вай!',
+    'Слушай, брат,',
+    'Клянусь честью,',
+]
+
+
+@st.cache_resource(show_spinner='Загружаем Qwen2.5-7B + LoRA адаптер...')
+def load_model():
+    from transformers import BitsAndBytesConfig
+    import torch
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    tok = AutoTokenizer.from_pretrained(ADAPTER_PATH)
+    tok.pad_token    = tok.eos_token
+    tok.padding_side = 'right'
+
+    bnb_cfg = BitsAndBytesConfig(
+        load_in_4bit           = True,
+        bnb_4bit_quant_type    = 'nf4',
+        bnb_4bit_compute_dtype = torch.float16,
+        bnb_4bit_use_double_quant = True,
+    )
+    base = AutoModelForCausalLM.from_pretrained(
+        MODEL_NAME,
+        quantization_config = bnb_cfg,
+        device_map          = 'auto',
+        torch_dtype         = torch.float16,
+    )
+    mdl = PeftModel.from_pretrained(base, ADAPTER_PATH)
+    mdl.eval()
+    return mdl, tok, device
+
+
+def generate(mdl, tok, device, prompt, max_new_tokens, temperature):
+    inputs = tok(prompt, return_tensors='pt').to(device)
+    with torch.no_grad():
+        out = mdl.generate(
+            **inputs,
+            max_new_tokens   = max_new_tokens,
+            do_sample        = True,
+            temperature      = temperature,
+            repetition_penalty = 1.3,
+            pad_token_id     = tok.eos_token_id,
+        )
+    new_ids = out[0][inputs['input_ids'].shape[1]:]
+    return tok.decode(new_ids, skip_special_tokens=True)
+
+
+# ── UI ─────────────────────────────────────────────────────────────────────
+
+st.title("Страница 3: Генерация текста — LLM & LoRA")
+st.markdown(
+    "Модель **rugpt3medium** дообучена на синтетическом датасете кавказского говора "
+    "с помощью **LoRA** (Low-Rank Adaptation). Сравни генерацию до и после fine-tuning."
+)
+
+if not os.path.isdir(ADAPTER_PATH):
+    st.warning("Адаптер не найден. Сначала запусти `page3_llm/work.ipynb` до конца.")
+    st.stop()
+
+# Метаданные обучения
+if os.path.exists(META_PATH):
+    with open(META_PATH, encoding='utf-8') as f:
+        meta = json.load(f)
+    with st.expander("Детали обучения"):
+        st.json(meta)
+
+# Настройки генерации
+col_l, col_r = st.columns([2, 1])
+with col_l:
+    prompt = st.text_input(
+        "Начало текста (промпт)",
+        value='Вах, слушай,',
+        placeholder='Введи начало фразы...',
+    )
+    st.caption("Быстрые примеры:")
+    btn_cols = st.columns(len(STARTER_PROMPTS))
+    for i, sp in enumerate(STARTER_PROMPTS):
+        if btn_cols[i].button(sp, key=f'sp_{i}', use_container_width=True):
+            prompt = sp
+            st.rerun()
+
+with col_r:
+    max_new_tokens = st.slider("Макс. токенов", 30, 250, 100)
+    temperature    = st.slider("Temperature", 0.5, 1.5, 0.9, 0.05,
+                               help="Выше = разнообразнее, ниже = предсказуемее")
+
+if st.button("Сгенерировать", type="primary", use_container_width=True):
+    mdl, tok, device = load_model()
+
+    left, right = st.columns(2)
+
+    with left:
+        st.subheader("Базовая модель")
+        with st.spinner("Генерация..."):
+            mdl.disable_adapter_layers()
+            base_out = generate(mdl, tok, device, prompt, max_new_tokens, temperature)
+        st.markdown(f"**{prompt}** {base_out}")
+
+    with right:
+        st.subheader("LoRA (fine-tuned)")
+        with st.spinner("Генерация..."):
+            mdl.enable_adapter_layers()
+            lora_out = generate(mdl, tok, device, prompt, max_new_tokens, temperature)
+        st.markdown(f"**{prompt}** {lora_out}")
+
+    mdl.enable_adapter_layers()  # восстанавливаем состояние
+
+    st.info(
+        "**Базовая модель** не знает кавказского говора — генерирует нейтральный русский текст.  \n"
+        "**LoRA** выучила стиль: характерные восклицания, обращения, клятвы.",
+        icon="💡"
+    )
