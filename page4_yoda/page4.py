@@ -57,26 +57,27 @@ def load_model():
     return mdl, tok, device
 
 
-def _is_cjk(ch: str) -> bool:
+def _is_foreign_letter(ch: str) -> bool:
+    """True, если символ — буква НЕ из латиницы и НЕ из кириллицы (китайский, тайский, арабский и т.п.)."""
+    if not ch.isalpha():
+        return False
     o = ord(ch)
-    return (
-        0x4E00 <= o <= 0x9FFF   or  # китайские иероглифы (CJK Unified)
-        0x3400 <= o <= 0x4DBF   or  # CJK Extension A
-        0x3040 <= o <= 0x30FF   or  # хирагана + катакана
-        0xAC00 <= o <= 0xD7AF   or  # корейский хангыль
-        0xF900 <= o <= 0xFAFF       # CJK Compatibility
-    )
+    if 0x41 <= o <= 0x5A or 0x61 <= o <= 0x7A or 0xC0 <= o <= 0x24F:
+        return False  # латиница (基)
+    if 0x0400 <= o <= 0x052F:
+        return False  # кириллица
+    return True       # любая другая письменность — блокируем
 
 
-def cjk_suppress_ids(tok):
-    """Токены с CJK-символами — Qwen изредка их генерирует. Кэшируем на токенайзере."""
-    if not hasattr(tok, '_cjk_ids'):
+def foreign_suppress_ids(tok):
+    """Токены с иностранными буквами — Qwen изредка их генерирует. Кэшируем на токенайзере."""
+    if not hasattr(tok, '_foreign_ids'):
         ids = [
             i for t, i in tok.get_vocab().items()
-            if any(_is_cjk(c) for c in tok.convert_tokens_to_string([t]))
+            if any(_is_foreign_letter(c) for c in tok.convert_tokens_to_string([t]))
         ]
-        tok._cjk_ids = ids
-    return tok._cjk_ids
+        tok._foreign_ids = ids
+    return tok._foreign_ids
 
 
 def generate_chat(mdl, tok, device, question, max_new_tokens, temperature):
@@ -88,6 +89,13 @@ def generate_chat(mdl, tok, device, question, max_new_tokens, temperature):
         messages, tokenize=False, add_generation_prompt=True
     )
     inputs = tok(text, return_tensors='pt').to(device)
+
+    # Останавливаем генерацию после ответа ассистента: <|im_end|> + обычный eos
+    eos_ids = [tok.eos_token_id]
+    im_end = tok.convert_tokens_to_ids('<|im_end|>')
+    if isinstance(im_end, int) and im_end >= 0 and im_end not in eos_ids:
+        eos_ids.append(im_end)
+
     with torch.no_grad():
         out = mdl.generate(
             **inputs,
@@ -97,7 +105,8 @@ def generate_chat(mdl, tok, device, question, max_new_tokens, temperature):
             top_p            = 0.9,
             repetition_penalty = 1.3,
             no_repeat_ngram_size = 3,   # запрет повторять 3-граммы — убирает зацикливания
-            suppress_tokens  = cjk_suppress_ids(tok),  # блокируем китайские токены Qwen
+            suppress_tokens  = foreign_suppress_ids(tok),  # блокируем иностранные буквы Qwen
+            eos_token_id     = eos_ids,                     # стоп после реплики ассистента
             pad_token_id     = tok.eos_token_id,
         )
     new_ids = out[0][inputs['input_ids'].shape[1]:]
