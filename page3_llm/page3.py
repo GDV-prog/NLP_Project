@@ -59,26 +59,23 @@ def load_model():
     return mdl, tok, device
 
 
-def _is_cjk(ch: str) -> bool:
-    o = ord(ch)
-    return (
-        0x4E00 <= o <= 0x9FFF   or  # китайские иероглифы (CJK Unified)
-        0x3400 <= o <= 0x4DBF   or  # CJK Extension A
-        0x3040 <= o <= 0x30FF   or  # хирагана + катакана
-        0xAC00 <= o <= 0xD7AF   or  # корейский хангыль
-        0xF900 <= o <= 0xFAFF       # CJK Compatibility
-    )
+def _is_non_cyrillic_letter(ch: str) -> bool:
+    """True, если символ — буква НЕ из кириллицы (латиница, иероглифы, тайский и т.п.)."""
+    if not ch.isalpha():
+        return False
+    return not (0x0400 <= ord(ch) <= 0x052F)  # вне кириллического блока
 
 
-def cjk_suppress_ids(tok):
-    """Токены, содержащие CJK-символы — Qwen изредка их генерирует. Кэшируем на токенайзере."""
-    if not hasattr(tok, '_cjk_ids'):
+def foreign_suppress_ids(tok):
+    """Кавказский говор — только русский. Блокируем токены с любыми не-кириллическими
+    буквами (английский, китайский и пр.). Кэшируем на токенайзере."""
+    if not hasattr(tok, '_foreign_ids'):
         ids = [
             i for t, i in tok.get_vocab().items()
-            if any(_is_cjk(c) for c in tok.convert_tokens_to_string([t]))
+            if any(_is_non_cyrillic_letter(c) for c in tok.convert_tokens_to_string([t]))
         ]
-        tok._cjk_ids = ids
-    return tok._cjk_ids
+        tok._foreign_ids = ids
+    return tok._foreign_ids
 
 
 def generate(mdl, tok, device, prompt, max_new_tokens, temperature):
@@ -92,7 +89,7 @@ def generate(mdl, tok, device, prompt, max_new_tokens, temperature):
             top_p            = 0.9,
             repetition_penalty = 1.3,
             no_repeat_ngram_size = 3,   # запрет повторять 3-граммы — убирает зацикливания
-            suppress_tokens  = cjk_suppress_ids(tok),  # блокируем китайские токены Qwen
+            suppress_tokens  = foreign_suppress_ids(tok),  # только кириллица — режем англ./иероглифы
             pad_token_id     = tok.eos_token_id,
         )
     new_ids = out[0][inputs['input_ids'].shape[1]:]
